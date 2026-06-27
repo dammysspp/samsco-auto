@@ -66,13 +66,19 @@ model ContentQueue {
   description      String?   @db.Text
   sourceUrl        String?
   status           String    @default("draft") // draft, scheduled, posted, failed
-  shortsScript     String?   @db.Text
-  communityCaption String?   @db.Text
-  scheduledFor     DateTime?
-  postedAt         DateTime?
-  errorMessage     String?   @db.Text
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  shortsScript      String?   @db.Text
+  communityCaption  String?   @db.Text
+  scheduledFor      DateTime?
+  postedAt          DateTime?
+  errorMessage      String?   @db.Text
+  
+  // Cloud assets
+  videoUrl          String?   @db.Text
+  audioUrl          String?   @db.Text
+  shotstackRenderId String?   @db.Text
+  
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 }
 
 model ScheduleSettings {
@@ -94,6 +100,7 @@ model ScheduleSettings {
   nextAuthUrl         String?  @db.Text
   cronSecret          String?  @db.Text
   apifyApiKey         String?  @db.Text
+  shotstackApiKey     String?  @db.Text
   
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt

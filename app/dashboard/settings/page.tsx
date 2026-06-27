@@ -2,7 +2,7 @@
 
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { Loader2, Save, Key, Youtube, Sliders, Info, Eye, EyeOff, ShieldCheck, Chrome, Image } from "lucide-react";
+import { Loader2, Save, Key, Youtube, Sliders, Info, Eye, EyeOff, ShieldCheck, Chrome, Image, Video } from "lucide-react";
 
 function SettingsForm() {
   const searchParams = useSearchParams();
@@ -15,6 +15,7 @@ function SettingsForm() {
   const [showYoutubeSecret, setShowYoutubeSecret] = useState(false);
   const [showCronSecret, setShowCronSecret] = useState(false);
   const [showApifyKey, setShowApifyKey] = useState(false);
+  const [showShotstackKey, setShowShotstackKey] = useState(false);
   
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
@@ -33,6 +34,7 @@ function SettingsForm() {
     nextAuthUrl: "",
     cronSecret: "",
     apifyApiKey: "",
+    shotstackApiKey: "",
   });
 
   // Load current settings from API on mount
@@ -56,6 +58,7 @@ function SettingsForm() {
             nextAuthUrl: json.data.nextAuthUrl || "",
             cronSecret: json.data.cronSecret || "",
             apifyApiKey: json.data.apifyApiKey || "",
+            shotstackApiKey: json.data.shotstackApiKey || "",
           });
         }
       } catch (err) {
@@ -272,6 +275,37 @@ function SettingsForm() {
               className="absolute right-3 top-3 text-zinc-500 hover:text-zinc-300"
             >
               {showApifyKey ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Shotstack Credentials Panel */}
+      <div className="p-6 rounded-xl border border-zinc-800 bg-zinc-950/40 backdrop-blur-sm space-y-4">
+        <h2 className="text-lg font-bold text-zinc-200 flex items-center gap-2">
+          <Video className="text-violet-400" size={20} />
+          Shotstack Cloud Video Editor API
+        </h2>
+        
+        <div className="space-y-1.5 relative">
+          <label htmlFor="shotstackKey" className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
+            Shotstack API Key (Sandbox/Stage)
+          </label>
+          <div className="relative">
+            <input
+              id="shotstackKey"
+              type={showShotstackKey ? "text" : "password"}
+              value={form.shotstackApiKey}
+              onChange={(e) => setForm({ ...form, shotstackApiKey: e.target.value })}
+              placeholder="svis..."
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-3 pr-10 py-2.5 text-zinc-200 focus:outline-none focus:border-violet-500 text-sm font-mono"
+            />
+            <button
+              type="button"
+              onClick={() => setShowShotstackKey(!showShotstackKey)}
+              className="absolute right-3 top-3 text-zinc-500 hover:text-zinc-300"
+            >
+              {showShotstackKey ? <EyeOff size={16} /> : <Eye size={16} />}
             </button>
           </div>
         </div>

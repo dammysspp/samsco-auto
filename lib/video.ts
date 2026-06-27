@@ -9,6 +9,8 @@ const ffmpegPath = ffmpegInstaller.path;
 export interface VideoCompilerResult {
   success: boolean;
   videoUrl: string;
+  audioUrl: string;
+  renderId: string;
   message: string;
 }
 
@@ -37,18 +39,80 @@ function getAudioDuration(audioPath: string): Promise<number> {
 }
 
 /**
- * Downloads a binary file from a URL to a local destination.
+ * Uploads a local file to the free temporary file hosting API tmpfiles.org
+ * so Shotstack's cloud servers can fetch it.
  */
-async function downloadFile(url: string, destPath: string): Promise<void> {
-  const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
-  if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
-  const arrayBuffer = await res.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
-  await fs.promises.writeFile(destPath, buffer);
+async function uploadToTmpFiles(filePath: string): Promise<string> {
+  const fileBuffer = fs.readFileSync(filePath);
+  const blob = new Blob([fileBuffer], { type: "audio/mpeg" });
+  const formData = new FormData();
+  formData.append("file", blob, path.basename(filePath));
+
+  const response = await fetch("https://tmpfiles.org/api/v1/upload", {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to upload audio to tmpfiles: status ${response.status}`);
+  }
+
+  const json = await response.json();
+  if (!json.data || !json.data.url) {
+    throw new Error("Invalid response structure from tmpfiles.org");
+  }
+
+  // Convert view URL (https://tmpfiles.org/12345/file.mp3) to direct download link (https://tmpfiles.org/dl/12345/file.mp3)
+  const viewUrl = json.data.url;
+  const downloadUrl = viewUrl.replace("tmpfiles.org/", "tmpfiles.org/dl/");
+  return downloadUrl;
 }
 
 /**
- * Compiles a slideshow video using Apify Google Images Scraper and FFmpeg.
+ * Helper to select the correct Shotstack endpoint based on the API Key
+ */
+function getShotstackUrl(apiKey: string): { baseUrl: string; headers: HeadersInit } {
+  // If it starts with "svis" or is stage specific, use stage endpoint. Otherwise use production.
+  const isStage = apiKey.startsWith("svis") || apiKey.includes("stage") || apiKey === "svisvAVcAi8mBi3P6O7MFFViBfO4cIARtdnqhLoC";
+  const baseUrl = isStage ? "https://api.shotstack.io/stage" : "https://api.shotstack.io/v1";
+  
+  return {
+    baseUrl,
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+    },
+  };
+}
+
+/**
+ * Queries Shotstack for the current status of an active render job.
+ */
+export async function checkShotstackStatus(
+  renderId: string,
+  apiKey: string
+): Promise<{ status: string; url?: string; error?: string }> {
+  const { baseUrl, headers } = getShotstackUrl(apiKey);
+  
+  const response = await fetch(`${baseUrl}/render/${renderId}`, {
+    method: "GET",
+    headers,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Shotstack render status lookup failed: status ${response.status}`);
+  }
+
+  const json = await response.json();
+  const status = json.response?.status;
+  const url = json.response?.url;
+  const error = json.response?.error;
+
+  return { status, url, error };
+}
+
+/**
+ * Triggers a Shotstack cloud slideshow compilation.
  * 
  * @param queueItemId The ID of the queue item (e.g. for audio path lookup)
  * @param searchQuery The search query for Google Images (e.g. "Messi World Cup 2026")
@@ -59,35 +123,35 @@ export async function compileSlideshowVideo(
   searchQuery: string,
   userId: string
 ): Promise<VideoCompilerResult> {
-  const tempDir = path.join(process.cwd(), "public", `temp-${queueItemId}`);
-  const outputDir = path.join(process.cwd(), "public", "videos");
   const audioPath = path.join(process.cwd(), "public", "audio", `${queueItemId}.mp3`);
-  const backgroundMusicPath = path.join(process.cwd(), "public", "music", "background.mp3");
-  const outputVideoPath = path.join(outputDir, `${queueItemId}.mp4`);
 
   try {
-    // 1. Check if output directories exist
-    if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir, { recursive: true });
-    }
-
     if (!fs.existsSync(audioPath)) {
       throw new Error(`TTS audio file not found at: ${audioPath}`);
     }
 
-    // 2. Fetch Apify credentials
+    // 1. Fetch credentials
     const settings = await prisma.scheduleSettings.findUnique({
       where: { userId },
     });
 
     const apifyApiKey = settings?.apifyApiKey;
     if (!apifyApiKey) {
-      throw new Error("Apify API key is not configured in database settings.");
+      throw new Error("Apify API key is not configured in settings.");
     }
 
-    console.log(`[Video Compiler] Starting Apify search for: "${searchQuery}"`);
+    const shotstackApiKey = settings?.shotstackApiKey;
+    if (!shotstackApiKey) {
+      throw new Error("Shotstack API key is not configured in settings.");
+    }
 
-    // 3. Trigger Apify Google Images Scraper
+    // 2. Upload the TTS voiceover MP3 to tmpfiles.org for public access
+    console.log(`[Shotstack Compiler] Uploading voiceover to tmpfiles.org: ${queueItemId}`);
+    const publicAudioUrl = await uploadToTmpFiles(audioPath);
+    console.log(`[Shotstack Compiler] Public audio hosted at: ${publicAudioUrl}`);
+
+    // 3. Search Google Images via Apify
+    console.log(`[Shotstack Compiler] Scraping Google Images for: "${searchQuery}"`);
     const apifyResponse = await fetch(
       `https://api.apify.com/v2/acts/apify~google-images-scraper/run-sync-get-dataset-items?token=${apifyApiKey}`,
       {
@@ -103,121 +167,122 @@ export async function compileSlideshowVideo(
 
     if (!apifyResponse.ok) {
       const errorText = await apifyResponse.text();
-      throw new Error(`Apify API failed with status ${apifyResponse.status}: ${errorText}`);
+      throw new Error(`Apify Google Images scraper failed: ${errorText}`);
     }
 
     const scrapedItems = await apifyResponse.json();
     if (!Array.isArray(scrapedItems) || scrapedItems.length === 0) {
-      throw new Error("Apify Scraper returned no image results for the query.");
+      throw new Error("Apify Google Images scraper returned empty results.");
     }
 
-    // Parse image URLs
     const imageUrls = scrapedItems
       .map((item: any) => item.imageUrl || item.image)
       .filter((url: any) => typeof url === "string" && url.startsWith("http"));
 
     if (imageUrls.length === 0) {
-      throw new Error("No valid image URLs found in the Apify search dataset.");
+      throw new Error("No valid image URLs extracted from Apify dataset.");
     }
 
-    // 4. Download images locally
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
-
-    const downloadedImages: string[] = [];
-    for (let i = 0; i < imageUrls.length; i++) {
-      const imgUrl = imageUrls[i];
-      const imgPath = path.join(tempDir, `slide-${i}.jpg`);
-      try {
-        await downloadFile(imgUrl, imgPath);
-        downloadedImages.push(imgPath);
-        console.log(`[Video Compiler] Downloaded: slide-${i}.jpg`);
-      } catch (err: any) {
-        console.warn(`[Video Compiler] Failed to download image ${i} (${imgUrl}):`, err.message);
-      }
-    }
-
-    if (downloadedImages.length === 0) {
-      throw new Error("Failed to download any images for the video compiler.");
-    }
-
-    // 5. Inspect TTS audio duration
+    // 4. Calculate slide durations based on voiceover MP3 duration
     const audioDuration = await getAudioDuration(audioPath);
-    console.log(`[Video Compiler] Audio duration: ${audioDuration}s`);
+    const slideDuration = parseFloat((audioDuration / imageUrls.length).toFixed(2));
 
-    const slideDuration = audioDuration / downloadedImages.length;
-    console.log(`[Video Compiler] Slide duration: ${slideDuration}s per image`);
+    console.log(`[Shotstack Compiler] Slideshow timeline: ${imageUrls.length} images for ${audioDuration}s total (${slideDuration}s per image)`);
 
-    // 6. Write FFmpeg Concat Playlist file
-    const concatFilePath = path.join(tempDir, "slideshow.txt");
-    let concatContent = "";
-    
-    for (const imgPath of downloadedImages) {
-      // Normalize Windows slashes for FFmpeg text files
-      const normalizedPath = imgPath.replace(/\\/g, "/");
-      concatContent += `file '${normalizedPath}'\n`;
-      concatContent += `duration ${slideDuration}\n`;
-    }
-    // FFmpeg requires listing the last file twice to apply the final duration
-    const lastImgPath = downloadedImages[downloadedImages.length - 1].replace(/\\/g, "/");
-    concatContent += `file '${lastImgPath}'\n`;
-
-    await fs.promises.writeFile(concatFilePath, concatContent);
-
-    // 7. Compile video with FFmpeg
-    console.log("[Video Compiler] Invoking FFmpeg renderer...");
-
-    const hasBackgroundMusic = fs.existsSync(backgroundMusicPath);
-    let ffmpegCmd = "";
-
-    if (hasBackgroundMusic) {
-      // Overlay slides, play voiceover, play background music at 8% volume, trim to voiceover duration
-      ffmpegCmd = `"${ffmpegPath}" -y -f concat -safe 0 -i "${concatFilePath.replace(/\\/g, "/")}" -i "${audioPath.replace(/\\/g, "/")}" -i "${backgroundMusicPath.replace(/\\/g, "/")}" -filter_complex "[1:a]volume=1.0[a1];[2:a]volume=0.08[a2];[a1][a2]amix=inputs=2:duration=first[a]" -map 0:v -map "[a]" -c:v libx264 -r 25 -pix_fmt yuv420p -shortest "${outputVideoPath.replace(/\\/g, "/")}"`;
-    } else {
-      // Overlay slides and play voiceover only
-      ffmpegCmd = `"${ffmpegPath}" -y -f concat -safe 0 -i "${concatFilePath.replace(/\\/g, "/")}" -i "${audioPath.replace(/\\/g, "/")}" -map 0:v -map 1:a -c:v libx264 -r 25 -pix_fmt yuv420p -shortest "${outputVideoPath.replace(/\\/g, "/")}"`;
-    }
-
-    return new Promise<VideoCompilerResult>((resolve) => {
-      exec(ffmpegCmd, (err, stdout, stderr) => {
-        // Clean up temp directory
-        try {
-          fs.rmSync(tempDir, { recursive: true, force: true });
-        } catch (rmErr) {
-          console.warn("[Video Compiler] Temporary directory cleanup failed:", rmErr);
-        }
-
-        if (err) {
-          console.error("[Video Compiler] FFmpeg execution failed:", stderr || stdout);
-          resolve({
-            success: false,
-            videoUrl: "",
-            message: `FFmpeg rendering failed: ${err.message}`,
-          });
-        } else {
-          console.log(`[Video Compiler] Success! Video saved to: /videos/${queueItemId}.mp4`);
-          resolve({
-            success: true,
-            videoUrl: `/videos/${queueItemId}.mp4`,
-            message: "Slideshow video successfully generated with voiceover and transitions.",
-          });
-        }
-      });
+    // 5. Build Shotstack Edit timeline JSON payload
+    const imageClips = imageUrls.map((url, index) => {
+      const start = parseFloat((index * slideDuration).toFixed(2));
+      return {
+        asset: {
+          type: "image",
+          src: url,
+        },
+        start,
+        length: slideDuration,
+        effect: index % 2 === 0 ? "zoomIn" : "zoomOut",
+      };
     });
-  } catch (error: any) {
-    console.error("[Video Compiler] Compilation exception:", error);
-    // Cleanup on exception
-    try {
-      if (fs.existsSync(tempDir)) {
-        fs.rmSync(tempDir, { recursive: true, force: true });
-      }
-    } catch (_) {}
 
+    const timeline = {
+      background: "#000000",
+      tracks: [
+        {
+          clips: imageClips,
+        },
+        {
+          clips: [
+            // Voiceover track
+            {
+              asset: {
+                type: "audio",
+                src: publicAudioUrl,
+              },
+              start: 0,
+              length: audioDuration,
+              volume: 1.0,
+            },
+            // Background music beat track (soft volume)
+            {
+              asset: {
+                type: "audio",
+                src: "https://assets.shotstack.io/music/chill.mp3",
+              },
+              start: 0,
+              length: audioDuration,
+              volume: 0.07,
+            },
+          ],
+        },
+      ],
+    };
+
+    const editPayload = {
+      timeline,
+      output: {
+        format: "mp4",
+        resolution: "mobile", // Vertical 540x960 Shorts layout
+      },
+    };
+
+    // 6. Submit render task to Shotstack API
+    const { baseUrl, headers } = getShotstackUrl(shotstackApiKey);
+    console.log(`[Shotstack Compiler] Dispatching render request to Shotstack: ${baseUrl}/render`);
+    
+    const shotstackResponse = await fetch(`${baseUrl}/render`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(editPayload),
+    });
+
+    if (!shotstackResponse.ok) {
+      const errorText = await shotstackResponse.text();
+      throw new Error(`Shotstack render request failed: status ${shotstackResponse.status}. Body: ${errorText}`);
+    }
+
+    const shotstackJson = await shotstackResponse.json();
+    const renderId = shotstackJson.response?.id;
+
+    if (!renderId) {
+      throw new Error("Failed to retrieve Render ID from Shotstack response.");
+    }
+
+    console.log(`[Shotstack Compiler] Render initiated. ID: ${renderId}`);
+
+    return {
+      success: true,
+      videoUrl: "", // initially empty, updated upon status check
+      audioUrl: publicAudioUrl,
+      renderId,
+      message: "Shotstack cloud slideshow render successfully initiated.",
+    };
+  } catch (error: any) {
+    console.error("[Shotstack Compiler] Exception:", error);
     return {
       success: false,
       videoUrl: "",
-      message: error.message || "Unknown error during video compilation",
+      audioUrl: "",
+      renderId: "",
+      message: error.message || "Unknown error during cloud video compilation",
     };
   }
 }

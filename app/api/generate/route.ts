@@ -62,15 +62,20 @@ export async function POST(req: Request) {
       ttsError = `TTS Warning: ${err.message || String(err)}`;
     }
 
-    // Generate Slideshow Video (.mp4) using Apify Images and FFmpeg
+    // Generate Slideshow Video using Apify Images and Shotstack Cloud
     let videoError = null;
     let videoUrl = "";
+    let audioUrl = "";
+    let shotstackRenderId = "";
+    
     try {
       if (generated.shortsScript && !ttsError) {
-        console.log(`[Generate Route] Starting slideshow compilation for: ${contentItem.title}`);
+        console.log(`[Generate Route] Starting cloud slideshow compilation for: ${contentItem.title}`);
         const compileResult = await compileSlideshowVideo(id, contentItem.title, userId);
         if (compileResult.success) {
           videoUrl = compileResult.videoUrl;
+          audioUrl = compileResult.audioUrl;
+          shotstackRenderId = compileResult.renderId;
         } else {
           videoError = `Video Warning: ${compileResult.message}`;
         }
@@ -110,14 +115,17 @@ export async function POST(req: Request) {
         communityCaption: generated.communityCaption,
         status: "scheduled",
         scheduledFor: scheduledDate,
-        errorMessage: combinedErrors || (videoUrl ? `Video URL: ${videoUrl}` : null),
+        errorMessage: combinedErrors || (shotstackRenderId ? "Rendering in Cloud" : null),
+        videoUrl: videoUrl || null,
+        audioUrl: audioUrl || null,
+        shotstackRenderId: shotstackRenderId || null,
       },
     });
 
     return NextResponse.json({
       success: true,
-      message: videoUrl 
-        ? "AI scripts, TTS audio, and MP4 video compiled and scheduled successfully." 
+      message: shotstackRenderId 
+        ? "AI scripts generated, TTS voiceover uploaded, and Shotstack rendering task queued." 
         : "AI scripts generated and scheduled with warnings.",
       data: updatedItem,
     });

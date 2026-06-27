@@ -15,7 +15,8 @@ import {
   X,
   Check,
   Play,
-  Volume2
+  Volume2,
+  RefreshCw
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -31,6 +32,9 @@ interface QueueItem {
   postedAt: Date | null;
   errorMessage: string | null;
   createdAt: Date;
+  videoUrl: string | null;
+  audioUrl: string | null;
+  shotstackRenderId: string | null;
 }
 
 export default function PipelineList({ initialItems }: { initialItems: QueueItem[] }) {
@@ -40,6 +44,7 @@ export default function PipelineList({ initialItems }: { initialItems: QueueItem
   const [loadingItemId, setLoadingItemId] = useState<string | null>(null);
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
 
   // Editing state variables
@@ -59,7 +64,6 @@ export default function PipelineList({ initialItems }: { initialItems: QueueItem
     return new Date(date).toLocaleString();
   };
 
-  // Convert Date object to datetime-local input string format (YYYY-MM-DDThh:mm)
   const formatForInput = (date: Date | string | null) => {
     if (!date) return "";
     const d = new Date(date);
@@ -71,6 +75,7 @@ export default function PipelineList({ initialItems }: { initialItems: QueueItem
   const generateAIContent = async (itemId: string) => {
     setLoadingItemId(itemId);
     setApiError(null);
+    setSuccessMsg(null);
     try {
       const response = await fetch("/api/generate", {
         method: "POST",
@@ -84,6 +89,39 @@ export default function PipelineList({ initialItems }: { initialItems: QueueItem
       setItems((prev) =>
         prev.map((item) => (item.id === itemId ? { ...item, ...data.data } : item))
       );
+      setSuccessMsg("AI content scripts created and Shotstack rendering task queued!");
+      router.refresh();
+    } catch (err: any) {
+      setApiError(err.message);
+    } finally {
+      setLoadingItemId(null);
+    }
+  };
+
+  const checkVideoStatus = async (itemId: string) => {
+    setLoadingItemId(itemId);
+    setApiError(null);
+    setSuccessMsg(null);
+    try {
+      const response = await fetch("/api/pipeline/check-video", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: itemId }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Failed to fetch render status");
+
+      setItems((prev) =>
+        prev.map((item) => (item.id === itemId ? { ...item, ...data.data } : item))
+      );
+
+      if (data.status === "done") {
+        setSuccessMsg("Shotstack video slideshow finished compiling successfully!");
+      } else if (data.status === "failed") {
+        setApiError("Shotstack video compilation failed. Check logs.");
+      } else {
+        setSuccessMsg(`Video is currently: ${data.status}...`);
+      }
       router.refresh();
     } catch (err: any) {
       setApiError(err.message);
@@ -97,7 +135,7 @@ export default function PipelineList({ initialItems }: { initialItems: QueueItem
     setEditShortsScript(item.shortsScript || "");
     setEditCommunityCaption(item.communityCaption || "");
     setEditScheduledFor(formatForInput(item.scheduledFor));
-    setExpandedItemId(item.id); // auto-expand to edit scripts
+    setExpandedItemId(item.id);
   };
 
   const cancelEditing = () => {
@@ -107,6 +145,7 @@ export default function PipelineList({ initialItems }: { initialItems: QueueItem
   const saveEdit = async (itemId: string) => {
     setSavingEdit(true);
     setApiError(null);
+    setSuccessMsg(null);
     try {
       const response = await fetch("/api/pipeline", {
         method: "PATCH",
@@ -122,11 +161,11 @@ export default function PipelineList({ initialItems }: { initialItems: QueueItem
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Failed to save updates.");
 
-      // Update local items state
       setItems((prev) =>
         prev.map((item) => (item.id === itemId ? { ...item, ...data.data } : item))
       );
       setEditingItemId(null);
+      setSuccessMsg("Schedule item updated successfully!");
       router.refresh();
     } catch (err: any) {
       setApiError(err.message);
@@ -178,6 +217,13 @@ export default function PipelineList({ initialItems }: { initialItems: QueueItem
         <div className="p-4 bg-red-950/30 border border-red-500/20 text-red-400 text-sm rounded-lg flex items-center gap-2">
           <AlertCircle size={16} />
           {apiError}
+        </div>
+      )}
+
+      {successMsg && (
+        <div className="p-4 bg-emerald-950/30 border border-emerald-500/20 text-emerald-400 text-sm rounded-lg flex items-center gap-2">
+          <CheckCircle2 size={16} />
+          {successMsg}
         </div>
       )}
 
@@ -335,31 +381,57 @@ export default function PipelineList({ initialItems }: { initialItems: QueueItem
                     
                     {/* Media output players (rendered when script exists) */}
                     {(item.status === "scheduled" || item.status === "posted") && !isEditing && (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-xl border border-zinc-850 bg-zinc-900/10">
-                        {/* TTS Voiceover */}
-                        <div className="space-y-2">
-                          <span className="text-[10px] uppercase font-bold text-zinc-500 flex items-center gap-1.5">
-                            <Volume2 size={12} className="text-emerald-500" />
-                            Voiceover Audio (TTS)
-                          </span>
-                          <audio
-                            src={`/audio/${item.id}.mp3`}
-                            controls
-                            className="w-full h-10 bg-zinc-950 rounded-lg"
-                          />
-                        </div>
-                        {/* Slide Video */}
-                        <div className="space-y-2">
-                          <span className="text-[10px] uppercase font-bold text-zinc-500 flex items-center gap-1.5">
-                            <Play size={12} className="text-sky-400" />
-                            Slideshow Video (Apify / FFmpeg)
-                          </span>
-                          <div className="relative aspect-video max-w-sm rounded-lg overflow-hidden border border-zinc-800 bg-black">
-                            <video
-                              src={`/videos/${item.id}.mp4`}
+                      <div className="p-4 rounded-xl border border-zinc-850 bg-zinc-900/10 space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {/* TTS Voiceover (Using public tmpfiles audioUrl or local audio) */}
+                          <div className="space-y-2">
+                            <span className="text-[10px] uppercase font-bold text-zinc-500 flex items-center gap-1.5">
+                              <Volume2 size={12} className="text-emerald-500" />
+                              Voiceover Audio (TTS)
+                            </span>
+                            <audio
+                              src={item.audioUrl || `/audio/${item.id}.mp3`}
                               controls
-                              className="w-full h-full object-contain"
+                              className="w-full h-10 bg-zinc-950 rounded-lg"
                             />
+                          </div>
+
+                          {/* Slide Video (Using public S3 videoUrl from Shotstack) */}
+                          <div className="space-y-2">
+                            <span className="text-[10px] uppercase font-bold text-zinc-500 flex items-center gap-1.5">
+                              <Play size={12} className="text-sky-400" />
+                              Slideshow Video (Shotstack Cloud)
+                            </span>
+                            {item.videoUrl ? (
+                              <div className="relative aspect-video max-w-sm rounded-lg overflow-hidden border border-zinc-800 bg-black">
+                                <video
+                                  src={item.videoUrl}
+                                  controls
+                                  className="w-full h-full object-contain"
+                                />
+                              </div>
+                            ) : item.shotstackRenderId ? (
+                              <div className="p-4 rounded-lg bg-zinc-900/40 border border-zinc-850 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 max-w-sm">
+                                <div className="space-y-1">
+                                  <span className="text-xs font-semibold text-zinc-300 block">Compiling in Shotstack Cloud...</span>
+                                  <span className="text-[10px] font-mono text-zinc-500">ID: {item.shotstackRenderId.substring(0, 12)}...</span>
+                                </div>
+                                <button
+                                  onClick={() => checkVideoStatus(item.id)}
+                                  disabled={loadingItemId !== null}
+                                  className="flex items-center gap-1 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 disabled:bg-violet-800 disabled:text-zinc-400 text-white text-[11px] font-bold rounded shadow cursor-pointer transition-all shrink-0"
+                                >
+                                  {loadingItemId === item.id ? (
+                                    <Loader2 size={12} className="animate-spin" />
+                                  ) : (
+                                    <RefreshCw size={12} />
+                                  )}
+                                  Refresh Status
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-zinc-500 italic block pt-2">No video generated yet.</span>
+                            )}
                           </div>
                         </div>
                       </div>

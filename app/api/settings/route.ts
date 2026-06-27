@@ -31,6 +31,7 @@ export async function GET() {
         nextAuthUrl: "",
         cronSecret: "",
         apifyApiKey: process.env.APIFY_API_KEY || "",
+        shotstackApiKey: process.env.SHOTSTACK_API_KEY || "",
       },
     });
   } catch (error: any) {
@@ -61,6 +62,7 @@ export async function POST(req: Request) {
       nextAuthUrl,
       cronSecret,
       apifyApiKey,
+      shotstackApiKey,
     } = body;
 
     const updatedSettings = await prisma.scheduleSettings.upsert({
@@ -79,6 +81,7 @@ export async function POST(req: Request) {
         nextAuthUrl,
         cronSecret,
         apifyApiKey: apifyApiKey || process.env.APIFY_API_KEY || "",
+        shotstackApiKey: shotstackApiKey || process.env.SHOTSTACK_API_KEY || "",
       },
       create: {
         userId,
@@ -95,6 +98,7 @@ export async function POST(req: Request) {
         nextAuthUrl,
         cronSecret,
         apifyApiKey: apifyApiKey || process.env.APIFY_API_KEY || "",
+        shotstackApiKey: shotstackApiKey || process.env.SHOTSTACK_API_KEY || "",
       },
     });
 
