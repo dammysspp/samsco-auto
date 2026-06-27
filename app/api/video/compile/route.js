@@ -17,7 +17,7 @@ export async function POST(req) {
 
     const { id } = await req.json();
     if (!id) {
-      return NextResponse.json({ error: "Missing ID" }, { status: 400 });
+      return NextResponse.json({ error: "Missing post ID" }, { status: 400 });
     }
 
     const item = await prisma.contentQueue.findFirst({
@@ -25,12 +25,12 @@ export async function POST(req) {
     });
 
     if (!item || !item.shortsScript) {
-      return NextResponse.json({ error: "Content item or script not found." }, { status: 404 });
+      return NextResponse.json({ error: "Draft item or script not found." }, { status: 404 });
     }
 
-    console.log(`[Script Approve Wrapper] Delegating compilation for: "${item.title}"`);
+    console.log(`[Unified Video Compile] Starting compilation chain for: "${item.title}"`);
 
-    // Lock to generating stage
+    // 1. Lock to generating stage
     await prisma.contentQueue.update({
       where: { id },
       data: {
@@ -39,11 +39,11 @@ export async function POST(req) {
       },
     });
 
-    // Generate Audio
+    // 2. Step A: Generate TTS Audio Narration locally in /tmp
     try {
       await generateFreeSpeech(item.shortsScript, id);
     } catch (ttsErr) {
-      console.error("[Script Approve Wrapper] TTS generation failed:", ttsErr);
+      console.error("[Unified Compiler] TTS voiceover generation failed:", ttsErr);
       const failedItem = await prisma.contentQueue.update({
         where: { id },
         data: {
@@ -58,7 +58,7 @@ export async function POST(req) {
       });
     }
 
-    // Trigger Video Render
+    // 3. Step B: Trigger Shotstack cloud rendering (including Apify Google Images & Subtitles)
     let shotstackRenderId = "";
     let publicAudioUrl = "";
     try {
@@ -71,7 +71,7 @@ export async function POST(req) {
         throw new Error(compileResult.message);
       }
     } catch (compileErr) {
-      console.error("[Script Approve Wrapper] Shotstack render failed:", compileErr);
+      console.error("[Unified Compiler] Shotstack cloud compile failed:", compileErr);
       const failedItem = await prisma.contentQueue.update({
         where: { id },
         data: {
@@ -86,7 +86,7 @@ export async function POST(req) {
       });
     }
 
-    // Update status to rendering_video
+    // 4. Update status to rendering_video
     const updatedItem = await prisma.contentQueue.update({
       where: { id },
       data: {
@@ -105,7 +105,7 @@ export async function POST(req) {
       data: updatedItem,
     });
   } catch (error) {
-    console.error("Script Approve Wrapper Error:", error);
+    console.error("Unified Compiler API Error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
