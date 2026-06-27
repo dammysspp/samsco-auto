@@ -37,8 +37,8 @@ export async function POST(req: Request) {
       );
     }
 
-    console.log(`[Legacy Script Gen] Generating script for: "${contentItem.title}"`);
-
+    console.log(`[AI Script Gen] Triggering script generation for: "${contentItem.title}"`);
+    
     // Lock the record
     await prisma.contentQueue.update({
       where: { id },
@@ -76,7 +76,7 @@ export async function POST(req: Request) {
       data: updatedItem,
     });
   } catch (error: any) {
-    console.error("Legacy Generate script error:", error);
+    console.error("Script Generation Error: ", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

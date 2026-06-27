@@ -71,7 +71,7 @@ async function handleCronProcess(req: Request) {
         await prisma.contentQueue.update({
           where: { id: item.id },
           data: {
-            status: "failed",
+            status: "publish_failed",
             errorMessage: "No YouTube OAuth credentials configured in settings.",
           },
         });
@@ -86,7 +86,7 @@ async function handleCronProcess(req: Request) {
         await prisma.contentQueue.update({
           where: { id: item.id },
           data: {
-            status: "failed",
+            status: "publish_failed",
             errorMessage: "YouTube OAuth credentials in database are corrupted/invalid JSON.",
           },
         });
@@ -96,32 +96,54 @@ async function handleCronProcess(req: Request) {
 
       // Collect database-stored YouTube client keys
       const ytSettings = {
-        clientId: settings.youtubeClientId,
-        clientSecret: settings.youtubeClientSecret,
-        redirectUri: settings.youtubeRedirectUri,
+        youtubeClientId: settings.youtubeClientId || undefined,
+        youtubeClientSecret: settings.youtubeClientSecret || undefined,
+        youtubeRedirectUri: settings.youtubeRedirectUri || undefined,
       };
 
       try {
         console.log(`[Cron Scheduler] Starting publication for: "${item.title}"`);
 
-        // A. Upload YouTube Short (passing custom settings from DB)
+        // Lock to publishing
+        await prisma.contentQueue.update({
+          where: { id: item.id },
+          data: {
+            status: "publishing",
+            publishingStartedAt: new Date(),
+          },
+        });
+
+        if (!item.videoUrl) {
+          throw new Error("No compiled S3 videoUrl found for this scheduled post.");
+        }
+
+        // A. Upload YouTube Short (passing S3 videoUrl to stream)
         const uploadResult = await uploadYouTubeShort(
           credentials,
           item.title,
           item.shortsScript || "World Cup 2026 update!",
-          undefined,
+          item.videoUrl,
           ytSettings
         );
 
         // B. Post Community Tab Caption (passing custom settings from DB)
         let communityMessage = "Post skipped - caption empty";
         if (item.communityCaption) {
-          const communityResult = await postCommunityTab(
-            credentials,
-            item.communityCaption,
-            ytSettings
-          );
-          communityMessage = communityResult.message;
+          try {
+            const communityResult = await postCommunityTab(
+              credentials,
+              item.communityCaption,
+              {
+                clientId: ytSettings.youtubeClientId,
+                clientSecret: ytSettings.youtubeClientSecret,
+                redirectUri: ytSettings.youtubeRedirectUri,
+              }
+            );
+            communityMessage = communityResult.message;
+          } catch (cErr: any) {
+            console.warn("[Cron Scheduler] Community post failed but video succeeded:", cErr);
+            communityMessage = `Community post warning: ${cErr.message || String(cErr)}`;
+          }
         }
 
         // C. Update database item as posted successfully
@@ -129,8 +151,10 @@ async function handleCronProcess(req: Request) {
           where: { id: item.id },
           data: {
             status: "posted",
+            youtubeVideoId: uploadResult.videoId,
+            youtubeUrl: uploadResult.url,
             postedAt: now,
-            errorMessage: `Video URL: ${uploadResult.url}. Community: ${communityMessage}`,
+            errorMessage: communityMessage.startsWith("Community post warning") ? communityMessage : null,
           },
         });
 
@@ -141,8 +165,9 @@ async function handleCronProcess(req: Request) {
         await prisma.contentQueue.update({
           where: { id: item.id },
           data: {
-            status: "failed",
+            status: "publish_failed",
             errorMessage: uploadError.message || String(uploadError),
+            retryCount: { increment: 1 },
           },
         });
 

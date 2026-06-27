@@ -70,7 +70,9 @@ export async function uploadYouTubeShort(
       },
       media: {
         mimeType: "video/mp4",
-        body: "Mock video streaming readable stream here or fs.createReadStream(filePath)",
+        body: videoFilePathPlaceholder && videoFilePathPlaceholder.startsWith("http")
+          ? require("stream").Readable.fromWeb((await fetch(videoFilePathPlaceholder)).body as any)
+          : "Mock video streaming readable stream here or fs.createReadStream(filePath)",
       },
     });
 

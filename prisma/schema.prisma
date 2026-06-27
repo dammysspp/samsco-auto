@@ -59,24 +59,39 @@ model VerificationToken {
 
 // Custom Dashboard models
 model ContentQueue {
-  id               String    @id @default(cuid())
-  userId           String
-  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  title            String
-  description      String?   @db.Text
-  sourceUrl        String?
-  status           String    @default("draft") // draft, scheduled, posted, failed
-  shortsScript      String?   @db.Text
+  id                String    @id @default(cuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title             String    // articleTitle
+  description       String?   @db.Text
+  sourceUrl         String?   // articleUrl
+  articleSource     String?   // articleSource
+  status            String    @default("draft") // draft, review_script, audio_generating, rendering_video, review_video, scheduled, publishing, posted, audio_failed, render_failed, publish_failed
+  shortsScript      String?   @db.Text // script
+  scriptVersions    String?   @db.Text // Store JSON representation of script versions
   communityCaption  String?   @db.Text
+  voiceName         String?   @default("en-US-News-K")
   scheduledFor      DateTime?
-  postedAt          DateTime?
-  errorMessage      String?   @db.Text
-  
+  postedAt          DateTime? // publishedAt
+  errorMessage      String?   @db.Text // lastError
+  retryCount        Int       @default(0)
+
   // Cloud assets
-  videoUrl          String?   @db.Text
-  audioUrl          String?   @db.Text
+  videoUrl          String?   @db.Text // renderUrl
+  audioUrl          String?   @db.Text // audioUrl
   shotstackRenderId String?   @db.Text
-  
+  youtubeVideoId    String?   @db.Text
+  youtubeUrl        String?   @db.Text
+
+  // State-machine auditing timestamps
+  scriptGeneratedAt   DateTime?
+  scriptApprovedAt    DateTime?
+  audioGeneratedAt    DateTime?
+  renderSubmittedAt   DateTime?
+  renderCompletedAt   DateTime?
+  queuedAt            DateTime?
+  publishingStartedAt DateTime?
+
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 }

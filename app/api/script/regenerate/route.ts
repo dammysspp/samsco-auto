@@ -32,14 +32,13 @@ export async function POST(req: Request) {
     const apiKey = settings?.groqApiKey || process.env.GROQ_API_KEY;
     if (!apiKey) {
       return NextResponse.json(
-        { error: "Groq API key not found. Please configure it in Settings." },
+        { error: "Groq API key not found." },
         { status: 400 }
       );
     }
 
-    console.log(`[Legacy Script Gen] Generating script for: "${contentItem.title}"`);
+    console.log(`[AI Script Re-Gen] Triggering script regeneration for: "${contentItem.title}"`);
 
-    // Lock the record
     await prisma.contentQueue.update({
       where: { id },
       data: { status: "script_generating" }
@@ -51,12 +50,20 @@ export async function POST(req: Request) {
       apiKey
     );
 
-    const initialVersion = {
+    let versionsList = [];
+    try {
+      if (contentItem.scriptVersions) {
+        versionsList = JSON.parse(contentItem.scriptVersions);
+      }
+    } catch (_) {}
+
+    const newVersion = {
       timestamp: new Date().toISOString(),
       script: generated.shortsScript || "",
       caption: generated.communityCaption || "",
-      type: "initial_generation",
+      type: `regeneration_v${versionsList.length + 1}`,
     };
+    versionsList.push(newVersion);
 
     const updatedItem = await prisma.contentQueue.update({
       where: { id },
@@ -64,19 +71,18 @@ export async function POST(req: Request) {
         shortsScript: generated.shortsScript,
         communityCaption: generated.communityCaption,
         status: "review_script",
-        scriptGeneratedAt: new Date(),
-        scriptVersions: JSON.stringify([initialVersion]),
+        scriptVersions: JSON.stringify(versionsList),
         errorMessage: null,
       },
     });
 
     return NextResponse.json({
       success: true,
-      message: "AI scripts generated successfully.",
+      message: "AI scripts regenerated successfully.",
       data: updatedItem,
     });
   } catch (error: any) {
-    console.error("Legacy Generate script error:", error);
+    console.error("Script Regeneration Error: ", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
