@@ -93,6 +93,7 @@ model ScheduleSettings {
   youtubeRedirectUri  String?  @db.Text
   nextAuthUrl         String?  @db.Text
   cronSecret          String?  @db.Text
+  apifyApiKey         String?  @db.Text
   
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt

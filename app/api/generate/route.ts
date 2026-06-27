@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { generateAIFootballContent } from "@/lib/groq";
 import { generateFreeSpeech } from "@/lib/tts";
+import { compileSlideshowVideo } from "@/lib/video";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 
@@ -57,8 +58,26 @@ export async function POST(req: Request) {
         await generateFreeSpeech(generated.shortsScript, id);
       }
     } catch (err: any) {
-      console.error("[Generate Route] TTS voiceover generation failed: ", err);
+      console.error("[Generate Route] TTS voiceover failed: ", err);
       ttsError = `TTS Warning: ${err.message || String(err)}`;
+    }
+
+    // Generate Slideshow Video (.mp4) using Apify Images and FFmpeg
+    let videoError = null;
+    let videoUrl = "";
+    try {
+      if (generated.shortsScript && !ttsError) {
+        console.log(`[Generate Route] Starting slideshow compilation for: ${contentItem.title}`);
+        const compileResult = await compileSlideshowVideo(id, contentItem.title, userId);
+        if (compileResult.success) {
+          videoUrl = compileResult.videoUrl;
+        } else {
+          videoError = `Video Warning: ${compileResult.message}`;
+        }
+      }
+    } catch (verr: any) {
+      console.error("[Generate Route] Video compilation failed: ", verr);
+      videoError = `Video Warning: ${verr.message || String(verr)}`;
     }
 
     // 6. Calculate the next scheduled post timestamp based on settings
@@ -76,13 +95,14 @@ export async function POST(req: Request) {
     // Adjust date based on frequency (Daily, Weekly, Monthly)
     const frequency = settings?.postingFrequency || "DAILY";
     if (frequency === "WEEKLY") {
-      // Find the next scheduled item for this user to check spacing, or just offset by a week
       scheduledDate.setUTCDate(scheduledDate.getUTCDate() + 6);
     } else if (frequency === "MONTHLY") {
       scheduledDate.setUTCMonth(scheduledDate.getUTCMonth() + 1);
     }
 
     // 7. Update database record with generated content and scheduled status
+    const combinedErrors = [ttsError, videoError].filter(Boolean).join(" | ") || null;
+    
     const updatedItem = await prisma.contentQueue.update({
       where: { id },
       data: {
@@ -90,13 +110,15 @@ export async function POST(req: Request) {
         communityCaption: generated.communityCaption,
         status: "scheduled",
         scheduledFor: scheduledDate,
-        errorMessage: ttsError,
+        errorMessage: combinedErrors || (videoUrl ? `Video URL: ${videoUrl}` : null),
       },
     });
 
     return NextResponse.json({
       success: true,
-      message: "AI scripts generated and scheduled successfully.",
+      message: videoUrl 
+        ? "AI scripts, TTS audio, and MP4 video compiled and scheduled successfully." 
+        : "AI scripts generated and scheduled with warnings.",
       data: updatedItem,
     });
   } catch (error: any) {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, Save, Key, Youtube, Sliders, Info, Eye, EyeOff, ShieldCheck, Chrome } from "lucide-react";
+import { Loader2, Save, Key, Youtube, Sliders, Info, Eye, EyeOff, ShieldCheck, Chrome, Image } from "lucide-react";
 
 export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
@@ -10,6 +10,7 @@ export default function SettingsPage() {
   const [showGoogleSecret, setShowGoogleSecret] = useState(false);
   const [showYoutubeSecret, setShowYoutubeSecret] = useState(false);
   const [showCronSecret, setShowCronSecret] = useState(false);
+  const [showApifyKey, setShowApifyKey] = useState(false);
   
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
@@ -27,6 +28,7 @@ export default function SettingsPage() {
     youtubeRedirectUri: "",
     nextAuthUrl: "",
     cronSecret: "",
+    apifyApiKey: "",
   });
 
   // Load current settings from API on mount
@@ -49,6 +51,7 @@ export default function SettingsPage() {
             youtubeRedirectUri: json.data.youtubeRedirectUri || "",
             nextAuthUrl: json.data.nextAuthUrl || "",
             cronSecret: json.data.cronSecret || "",
+            apifyApiKey: json.data.apifyApiKey || "",
           });
         }
       } catch (err) {
@@ -236,6 +239,37 @@ export default function SettingsPage() {
                 className="absolute right-3 top-3 text-zinc-500 hover:text-zinc-300"
               >
                 {showGroqKey ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Apify Credentials Panel */}
+        <div className="p-6 rounded-xl border border-zinc-800 bg-zinc-950/40 backdrop-blur-sm space-y-4">
+          <h2 className="text-lg font-bold text-zinc-200 flex items-center gap-2">
+            <Image className="text-sky-400" size={20} />
+            Apify Search API Integration (Google Images)
+          </h2>
+          
+          <div className="space-y-1.5 relative">
+            <label htmlFor="apifyKey" className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
+              Apify API Token
+            </label>
+            <div className="relative">
+              <input
+                id="apifyKey"
+                type={showApifyKey ? "text" : "password"}
+                value={form.apifyApiKey}
+                onChange={(e) => setForm({ ...form, apifyApiKey: e.target.value })}
+                placeholder="apify_api_..."
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-3 pr-10 py-2.5 text-zinc-200 focus:outline-none focus:border-emerald-500 text-sm font-mono"
+              />
+              <button
+                type="button"
+                onClick={() => setShowApifyKey(!showApifyKey)}
+                className="absolute right-3 top-3 text-zinc-500 hover:text-zinc-300"
+              >
+                {showApifyKey ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
           </div>
