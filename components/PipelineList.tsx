@@ -10,7 +10,12 @@ import {
   CheckCircle2, 
   AlertCircle,
   FileText,
-  ExternalLink
+  ExternalLink,
+  Edit2,
+  X,
+  Check,
+  Play,
+  Volume2
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -37,6 +42,13 @@ export default function PipelineList({ initialItems }: { initialItems: QueueItem
   const [apiError, setApiError] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
 
+  // Editing state variables
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [editShortsScript, setEditShortsScript] = useState("");
+  const [editCommunityCaption, setEditCommunityCaption] = useState("");
+  const [editScheduledFor, setEditScheduledFor] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -45,6 +57,15 @@ export default function PipelineList({ initialItems }: { initialItems: QueueItem
     if (!date) return "";
     if (!mounted) return "...";
     return new Date(date).toLocaleString();
+  };
+
+  // Convert Date object to datetime-local input string format (YYYY-MM-DDThh:mm)
+  const formatForInput = (date: Date | string | null) => {
+    if (!date) return "";
+    const d = new Date(date);
+    const tzoffset = d.getTimezoneOffset() * 60000;
+    const localISOTime = (new Date(d.getTime() - tzoffset)).toISOString().slice(0, 16);
+    return localISOTime;
   };
 
   const generateAIContent = async (itemId: string) => {
@@ -68,6 +89,49 @@ export default function PipelineList({ initialItems }: { initialItems: QueueItem
       setApiError(err.message);
     } finally {
       setLoadingItemId(null);
+    }
+  };
+
+  const startEditing = (item: QueueItem) => {
+    setEditingItemId(item.id);
+    setEditShortsScript(item.shortsScript || "");
+    setEditCommunityCaption(item.communityCaption || "");
+    setEditScheduledFor(formatForInput(item.scheduledFor));
+    setExpandedItemId(item.id); // auto-expand to edit scripts
+  };
+
+  const cancelEditing = () => {
+    setEditingItemId(null);
+  };
+
+  const saveEdit = async (itemId: string) => {
+    setSavingEdit(true);
+    setApiError(null);
+    try {
+      const response = await fetch("/api/pipeline", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: itemId,
+          shortsScript: editShortsScript,
+          communityCaption: editCommunityCaption,
+          scheduledFor: editScheduledFor ? new Date(editScheduledFor).toISOString() : null,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Failed to save updates.");
+
+      // Update local items state
+      setItems((prev) =>
+        prev.map((item) => (item.id === itemId ? { ...item, ...data.data } : item))
+      );
+      setEditingItemId(null);
+      router.refresh();
+    } catch (err: any) {
+      setApiError(err.message);
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -126,6 +190,8 @@ export default function PipelineList({ initialItems }: { initialItems: QueueItem
         <div className="space-y-4">
           {filteredItems.map((item) => {
             const isExpanded = expandedItemId === item.id;
+            const isEditing = editingItemId === item.id;
+
             return (
               <div
                 key={item.id}
@@ -144,11 +210,12 @@ export default function PipelineList({ initialItems }: { initialItems: QueueItem
 
                   {/* Actions */}
                   <div className="flex items-center gap-2 self-start md:self-center">
-                    {item.status === "draft" && (
+                    {/* Draft Content Generation */}
+                    {item.status === "draft" && !isEditing && (
                       <button
                         onClick={() => generateAIContent(item.id)}
                         disabled={loadingItemId !== null}
-                        className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow-md disabled:bg-emerald-800 disabled:text-zinc-400 transition-all"
+                        className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow-md disabled:bg-emerald-800 disabled:text-zinc-400 transition-all cursor-pointer"
                       >
                         {loadingItemId === item.id ? (
                           <Loader2 size={14} className="animate-spin" />
@@ -159,18 +226,51 @@ export default function PipelineList({ initialItems }: { initialItems: QueueItem
                       </button>
                     )}
 
-                    {(item.shortsScript || item.communityCaption) && (
+                    {/* Edit Trigger */}
+                    {!isEditing && item.status !== "posted" && (
+                      <button
+                        onClick={() => startEditing(item)}
+                        className="flex items-center gap-1.5 px-3 py-2 border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-xs font-semibold rounded-lg bg-zinc-900 transition-all cursor-pointer"
+                      >
+                        <Edit2 size={12} />
+                        Edit Post
+                      </button>
+                    )}
+
+                    {/* Save / Cancel Controls */}
+                    {isEditing && (
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => saveEdit(item.id)}
+                          disabled={savingEdit}
+                          className="flex items-center gap-1 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg cursor-pointer"
+                        >
+                          {savingEdit ? <Loader2 size={12} className="animate-spin" /> : <Check size={14} />}
+                          Save
+                        </button>
+                        <button
+                          onClick={cancelEditing}
+                          className="flex items-center gap-1 px-3 py-2 border border-zinc-800 text-zinc-400 hover:text-zinc-200 text-xs font-semibold rounded-lg cursor-pointer"
+                        >
+                          <X size={14} />
+                          Cancel
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Inspect Scripts Toggle */}
+                    {(item.shortsScript || item.communityCaption) && !isEditing && (
                       <button
                         onClick={() => setExpandedItemId(isExpanded ? null : item.id)}
-                        className="flex items-center gap-1.5 px-3 py-2 border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-xs font-semibold rounded-lg bg-zinc-900 transition-all"
+                        className="flex items-center gap-1.5 px-3 py-2 border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-xs font-semibold rounded-lg bg-zinc-900 transition-all cursor-pointer"
                       >
                         {isExpanded ? (
                           <>
-                            <EyeOff size={14} /> Hide Scripts
+                            <EyeOff size={14} /> Hide Content
                           </>
                         ) : (
                           <>
-                            <Eye size={14} /> Inspect Scripts
+                            <Eye size={14} /> View Content
                           </>
                         )}
                       </button>
@@ -193,7 +293,7 @@ export default function PipelineList({ initialItems }: { initialItems: QueueItem
                 {/* Metadata & Scheduled Time */}
                 <div className="flex flex-wrap gap-x-6 gap-y-2 text-[11px] text-zinc-500 pt-1 border-t border-zinc-900">
                   <span>Created: {formatDate(item.createdAt)}</span>
-                  {item.scheduledFor && (
+                  {item.scheduledFor && !isEditing && (
                     <span className="flex items-center gap-1 text-blue-400 font-medium">
                       <Calendar size={12} />
                       Scheduled: {formatDate(item.scheduledFor)}
@@ -205,6 +305,20 @@ export default function PipelineList({ initialItems }: { initialItems: QueueItem
                       Published: {formatDate(item.postedAt)}
                     </span>
                   )}
+
+                  {/* Inline Rescheduler Input */}
+                  {isEditing && (
+                    <div className="flex items-center gap-2 text-xs text-blue-400 font-semibold mt-0.5">
+                      <Calendar size={12} />
+                      <span className="mr-1">Reschedule:</span>
+                      <input
+                        type="datetime-local"
+                        value={editScheduledFor}
+                        onChange={(e) => setEditScheduledFor(e.target.value)}
+                        className="bg-zinc-900 border border-zinc-850 text-zinc-200 rounded px-2 py-1 text-xs focus:outline-none focus:border-blue-500 font-mono"
+                      />
+                    </div>
+                  )}
                 </div>
 
                 {/* Error Banner */}
@@ -215,33 +329,86 @@ export default function PipelineList({ initialItems }: { initialItems: QueueItem
                   </div>
                 )}
 
-                {/* Collapsible scripts drawer */}
+                {/* Collapsible scripts drawer & Media Players */}
                 {isExpanded && (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-4 border-t border-zinc-900 animate-fadeIn">
-                    {/* Shorts script */}
-                    <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-850 space-y-2">
-                      <div className="flex items-center justify-between border-b border-zinc-900 pb-2">
-                        <span className="text-xs font-bold text-zinc-300 flex items-center gap-1.5">
-                          <FileText size={14} className="text-emerald-500" />
-                          YouTube Shorts Script (Llama-3-70b)
-                        </span>
+                  <div className="space-y-4 pt-4 border-t border-zinc-900 animate-fadeIn">
+                    
+                    {/* Media output players (rendered when script exists) */}
+                    {(item.status === "scheduled" || item.status === "posted") && !isEditing && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-xl border border-zinc-850 bg-zinc-900/10">
+                        {/* TTS Voiceover */}
+                        <div className="space-y-2">
+                          <span className="text-[10px] uppercase font-bold text-zinc-500 flex items-center gap-1.5">
+                            <Volume2 size={12} className="text-emerald-500" />
+                            Voiceover Audio (TTS)
+                          </span>
+                          <audio
+                            src={`/audio/${item.id}.mp3`}
+                            controls
+                            className="w-full h-10 bg-zinc-950 rounded-lg"
+                          />
+                        </div>
+                        {/* Slide Video */}
+                        <div className="space-y-2">
+                          <span className="text-[10px] uppercase font-bold text-zinc-500 flex items-center gap-1.5">
+                            <Play size={12} className="text-sky-400" />
+                            Slideshow Video (Apify / FFmpeg)
+                          </span>
+                          <div className="relative aspect-video max-w-sm rounded-lg overflow-hidden border border-zinc-800 bg-black">
+                            <video
+                              src={`/videos/${item.id}.mp4`}
+                              controls
+                              className="w-full h-full object-contain"
+                            />
+                          </div>
+                        </div>
                       </div>
-                      <pre className="text-xs font-sans text-zinc-400 whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto pr-2">
-                        {item.shortsScript}
-                      </pre>
-                    </div>
+                    )}
 
-                    {/* Community Caption */}
-                    <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-850 space-y-2">
-                      <div className="flex items-center justify-between border-b border-zinc-900 pb-2">
-                        <span className="text-xs font-bold text-zinc-300 flex items-center gap-1.5">
-                          <Sparkles size={14} className="text-blue-500" />
-                          Community Caption
-                        </span>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      {/* Shorts script */}
+                      <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-850 space-y-2">
+                        <div className="flex items-center justify-between border-b border-zinc-900 pb-2">
+                          <span className="text-xs font-bold text-zinc-300 flex items-center gap-1.5">
+                            <FileText size={14} className="text-emerald-500" />
+                            YouTube Shorts Script
+                          </span>
+                        </div>
+                        {isEditing ? (
+                          <textarea
+                            value={editShortsScript}
+                            onChange={(e) => setEditShortsScript(e.target.value)}
+                            rows={8}
+                            className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-zinc-300 text-xs font-sans leading-relaxed focus:outline-none focus:border-emerald-500"
+                          />
+                        ) : (
+                          <pre className="text-xs font-sans text-zinc-400 whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto pr-2">
+                            {item.shortsScript || "No script generated yet."}
+                          </pre>
+                        )}
                       </div>
-                      <p className="text-xs text-zinc-400 whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto pr-2">
-                        {item.communityCaption}
-                      </p>
+
+                      {/* Community Caption */}
+                      <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-850 space-y-2">
+                        <div className="flex items-center justify-between border-b border-zinc-900 pb-2">
+                          <span className="text-xs font-bold text-zinc-300 flex items-center gap-1.5">
+                            <Sparkles size={14} className="text-blue-500" />
+                            Community Caption
+                          </span>
+                        </div>
+                        {isEditing ? (
+                          <textarea
+                            value={editCommunityCaption}
+                            onChange={(e) => setEditCommunityCaption(e.target.value)}
+                            rows={8}
+                            className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-zinc-300 text-xs font-sans leading-relaxed focus:outline-none focus:border-blue-500"
+                          />
+                        ) : (
+                          <p className="text-xs text-zinc-400 whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto pr-2">
+                            {item.communityCaption || "No caption generated yet."}
+                          </p>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
