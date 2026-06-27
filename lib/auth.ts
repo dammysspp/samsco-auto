@@ -53,7 +53,7 @@ export const authOptions: NextAuthOptions = {
   pages: {
     signIn: "/",
   },
-  secret: process.env.NEXTAUTH_SECRET,
+  secret: process.env.NEXTAUTH_SECRET || "fifa_world_cup_dashboard_secret_2026",
 };
 
 export async function getDynamicAuthOptions(): Promise<NextAuthOptions> {
