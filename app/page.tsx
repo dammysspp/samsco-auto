@@ -1,6 +1,6 @@
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import { authOptions } from "./api/auth/[...nextauth]/route";
+import { authOptions } from "@/lib/auth";
 import LoginButton from "@/components/LoginButton";
 import { Trophy, RefreshCw, Cpu, Youtube, Clock } from "lucide-react";
 

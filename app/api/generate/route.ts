@@ -3,7 +3,7 @@ import prisma from "@/lib/prisma";
 import { generateAIFootballContent } from "@/lib/groq";
 import { generateFreeSpeech } from "@/lib/tts";
 import { getServerSession } from "next-auth";
-import { authOptions } from "../auth/[...nextauth]/route";
+import { authOptions } from "@/lib/auth";
 
 export async function POST(req: Request) {
   try {
