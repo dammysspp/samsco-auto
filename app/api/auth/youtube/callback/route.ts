@@ -41,8 +41,11 @@ export async function GET(req: Request) {
       },
     });
 
-    // Redirect back to settings page with success flag
-    const appUrl = settings?.nextAuthUrl || process.env.NEXTAUTH_URL || "http://localhost:3000";
+    // Redirect back to settings page dynamically using request headers
+    const host = req.headers.get("host") || "localhost:3000";
+    const protocol = req.headers.get("x-forwarded-proto") || "https";
+    const appUrl = `${protocol}://${host}`;
+    
     const redirectUrl = new URL("/dashboard/settings", appUrl);
     redirectUrl.searchParams.set("success", "youtube");
 
