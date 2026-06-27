@@ -110,7 +110,8 @@ export async function postCommunityTab(
     const youtube = getYouTubeClient(credentials, settings);
     
     // Validate credentials
-    const tokenInfo = await youtube.context._options.auth?.getAccessToken();
+    const authClient = youtube.context._options.auth as any;
+    const tokenInfo = await authClient?.getAccessToken();
     if (!tokenInfo) {
       throw new Error("Invalid YouTube Access Token during Community Tab auth check.");
     }
