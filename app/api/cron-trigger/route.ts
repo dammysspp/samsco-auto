@@ -59,21 +59,30 @@ export async function POST() {
 
       const credentials = JSON.parse(settings.youtubeOAuth);
 
+      // Collect database-stored YouTube client keys
+      const ytSettings = {
+        clientId: settings.youtubeClientId,
+        clientSecret: settings.youtubeClientSecret,
+        redirectUri: settings.youtubeRedirectUri,
+      };
+
       try {
-        // Upload Shorts
+        // Upload Shorts (passing custom settings from DB)
         const uploadResult = await uploadYouTubeShort(
           credentials,
           item.title,
           item.shortsScript || "FIFA 2026 update!",
-          undefined
+          undefined,
+          ytSettings
         );
 
-        // Upload Community Tab
+        // Upload Community Tab (passing custom settings from DB)
         let communityMessage = "Skipped";
         if (item.communityCaption) {
           const communityResult = await postCommunityTab(
             credentials,
-            item.communityCaption
+            item.communityCaption,
+            ytSettings
           );
           communityMessage = communityResult.message;
         }

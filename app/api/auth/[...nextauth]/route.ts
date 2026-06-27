@@ -7,10 +7,6 @@ import prisma from "@/lib/prisma";
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
   providers: [
-    GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID || "dummy-id",
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET || "dummy-secret",
-    }),
     CredentialsProvider({
       name: "Developer Access",
       credentials: {
@@ -57,7 +53,46 @@ export const authOptions: NextAuthOptions = {
   pages: {
     signIn: "/",
   },
+  secret: process.env.NEXTAUTH_SECRET,
 };
 
-const handler = NextAuth(authOptions);
-export { handler as GET, handler as POST };
+async function getDynamicAuthOptions(): Promise<NextAuthOptions> {
+  const settings = await prisma.scheduleSettings.findFirst();
+  
+  const googleClientId = settings?.googleClientId || process.env.GOOGLE_CLIENT_ID;
+  const googleClientSecret = settings?.googleClientSecret || process.env.GOOGLE_CLIENT_SECRET;
+
+  const providers = [...authOptions.providers];
+
+  if (googleClientId && googleClientSecret) {
+    providers.push(
+      GoogleProvider({
+        clientId: googleClientId,
+        clientSecret: googleClientSecret,
+      })
+    );
+  } else {
+    // Inject a dummy fallback during initialization to prevent next-auth boot crashes
+    providers.push(
+      GoogleProvider({
+        clientId: "dummy-id",
+        clientSecret: "dummy-secret",
+      })
+    );
+  }
+
+  return {
+    ...authOptions,
+    providers,
+  };
+}
+
+export async function GET(req: Request, res: any) {
+  const options = await getDynamicAuthOptions();
+  return NextAuth(req, res, options);
+}
+
+export async function POST(req: Request, res: any) {
+  const options = await getDynamicAuthOptions();
+  return NextAuth(req, res, options);
+}

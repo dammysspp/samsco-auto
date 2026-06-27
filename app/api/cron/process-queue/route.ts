@@ -12,15 +12,19 @@ export async function POST(req: Request) {
 
 async function handleCronProcess(req: Request) {
   try {
-    // 1. Verify Vercel Cron Secret authorization
+    // 1. Resolve Cron Secret from database (falling back to process.env)
+    const firstSettings = await prisma.scheduleSettings.findFirst({
+      select: { cronSecret: true },
+    });
+    
+    const expectedSecret = firstSettings?.cronSecret || process.env.CRON_SECRET;
+
     const authHeader = req.headers.get("authorization");
     const searchParams = new URL(req.url).searchParams;
     const urlSecret = searchParams.get("secret");
 
-    const expectedSecret = process.env.CRON_SECRET;
-    
-    // Support either Vercel's authorization header or local development query param testing
     if (
+      expectedSecret &&
       authHeader !== `Bearer ${expectedSecret}` &&
       urlSecret !== expectedSecret
     ) {
@@ -64,7 +68,6 @@ async function handleCronProcess(req: Request) {
       const settings = item.user.scheduleSettings;
       
       if (!settings || !settings.youtubeOAuth) {
-        // Log failure if user hasn't configured YouTube credentials
         await prisma.contentQueue.update({
           where: { id: item.id },
           data: {
@@ -91,23 +94,32 @@ async function handleCronProcess(req: Request) {
         continue;
       }
 
+      // Collect database-stored YouTube client keys
+      const ytSettings = {
+        clientId: settings.youtubeClientId,
+        clientSecret: settings.youtubeClientSecret,
+        redirectUri: settings.youtubeRedirectUri,
+      };
+
       try {
         console.log(`[Cron Scheduler] Starting publication for: "${item.title}"`);
 
-        // A. Upload YouTube Short (Using script as fallback description)
+        // A. Upload YouTube Short (passing custom settings from DB)
         const uploadResult = await uploadYouTubeShort(
           credentials,
           item.title,
           item.shortsScript || "World Cup 2026 update!",
-          undefined // Placeholder path
+          undefined,
+          ytSettings
         );
 
-        // B. Post Community Tab Caption
+        // B. Post Community Tab Caption (passing custom settings from DB)
         let communityMessage = "Post skipped - caption empty";
         if (item.communityCaption) {
           const communityResult = await postCommunityTab(
             credentials,
-            item.communityCaption
+            item.communityCaption,
+            ytSettings
           );
           communityMessage = communityResult.message;
         }
@@ -126,7 +138,6 @@ async function handleCronProcess(req: Request) {
       } catch (uploadError: any) {
         console.error(`[Cron Scheduler] Failed to post item ${item.id}: `, uploadError);
         
-        // Save error details to DB
         await prisma.contentQueue.update({
           where: { id: item.id },
           data: {

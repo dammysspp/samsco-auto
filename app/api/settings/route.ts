@@ -23,6 +23,13 @@ export async function GET() {
         youtubeChannelId: "",
         groqApiKey: "",
         youtubeOAuth: "",
+        googleClientId: "",
+        googleClientSecret: "",
+        youtubeClientId: "",
+        youtubeClientSecret: "",
+        youtubeRedirectUri: "",
+        nextAuthUrl: "",
+        cronSecret: "",
       },
     });
   } catch (error: any) {
@@ -45,6 +52,13 @@ export async function POST(req: Request) {
       youtubeChannelId,
       groqApiKey,
       youtubeOAuth,
+      googleClientId,
+      googleClientSecret,
+      youtubeClientId,
+      youtubeClientSecret,
+      youtubeRedirectUri,
+      nextAuthUrl,
+      cronSecret,
     } = body;
 
     const updatedSettings = await prisma.scheduleSettings.upsert({
@@ -55,6 +69,13 @@ export async function POST(req: Request) {
         youtubeChannelId,
         groqApiKey,
         youtubeOAuth,
+        googleClientId,
+        googleClientSecret,
+        youtubeClientId,
+        youtubeClientSecret,
+        youtubeRedirectUri,
+        nextAuthUrl,
+        cronSecret,
       },
       create: {
         userId,
@@ -63,12 +84,19 @@ export async function POST(req: Request) {
         youtubeChannelId,
         groqApiKey,
         youtubeOAuth,
+        googleClientId,
+        googleClientSecret,
+        youtubeClientId,
+        youtubeClientSecret,
+        youtubeRedirectUri,
+        nextAuthUrl,
+        cronSecret,
       },
     });
 
     return NextResponse.json({
       success: true,
-      message: "Schedule settings successfully updated.",
+      message: "Database-stored configuration settings successfully updated.",
       data: updatedSettings,
     });
   } catch (error: any) {

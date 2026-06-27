@@ -84,6 +84,16 @@ model ScheduleSettings {
   youtubeChannelId String?
   groqApiKey       String?  @db.Text
   youtubeOAuth     String?  @db.Text // Store JSON representation of YouTube access/refresh token
+  
+  // New configuration fields stored in DB
+  googleClientId      String?  @db.Text
+  googleClientSecret  String?  @db.Text
+  youtubeClientId     String?  @db.Text
+  youtubeClientSecret String?  @db.Text
+  youtubeRedirectUri  String?  @db.Text
+  nextAuthUrl         String?  @db.Text
+  cronSecret          String?  @db.Text
+  
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 }

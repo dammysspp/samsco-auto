@@ -6,11 +6,17 @@ interface OAuthCredentials {
   expiry_date?: number;
 }
 
-export function getYouTubeClient(credentials: OAuthCredentials) {
+export interface YouTubeClientSettings {
+  clientId?: string | null;
+  clientSecret?: string | null;
+  redirectUri?: string | null;
+}
+
+export function getYouTubeClient(credentials: OAuthCredentials, settings?: YouTubeClientSettings) {
   const oauth2Client = new google.auth.OAuth2(
-    process.env.YOUTUBE_CLIENT_ID,
-    process.env.YOUTUBE_CLIENT_SECRET,
-    process.env.YOUTUBE_REDIRECT_URI
+    settings?.clientId || process.env.YOUTUBE_CLIENT_ID,
+    settings?.clientSecret || process.env.YOUTUBE_CLIENT_SECRET,
+    settings?.redirectUri || process.env.YOUTUBE_REDIRECT_URI
   );
 
   oauth2Client.setCredentials({
@@ -34,10 +40,11 @@ export async function uploadYouTubeShort(
   credentials: OAuthCredentials,
   videoTitle: string,
   scriptText: string,
-  videoFilePathPlaceholder?: string
+  videoFilePathPlaceholder?: string,
+  settings?: YouTubeClientSettings
 ): Promise<{ videoId: string; url: string }> {
   try {
-    const youtube = getYouTubeClient(credentials);
+    const youtube = getYouTubeClient(credentials, settings);
 
     // 1. Placeholder logic for video source:
     // In a fully end-to-end pipeline, you would use an automated rendering engine 
@@ -96,10 +103,11 @@ export async function uploadYouTubeShort(
  */
 export async function postCommunityTab(
   credentials: OAuthCredentials,
-  captionText: string
+  captionText: string,
+  settings?: YouTubeClientSettings
 ): Promise<{ success: boolean; message: string }> {
   try {
-    const youtube = getYouTubeClient(credentials);
+    const youtube = getYouTubeClient(credentials, settings);
     
     // Validate credentials
     const tokenInfo = await youtube.context._options.auth?.getAccessToken();
