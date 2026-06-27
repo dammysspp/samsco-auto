@@ -1,5 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 
+console.log("[Prisma Init] DATABASE_URL is defined:", !!process.env.DATABASE_URL);
+
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
 export const prisma =
